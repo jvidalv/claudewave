@@ -1,24 +1,34 @@
+// Minimal line protocol over USB-CDC. Each snapshot is a frame:
+//
+//     BEGIN
+//     S<TAB>name<TAB>status<TAB>ago_ms
+//     S<TAB>name<TAB>status<TAB>ago_ms
+//     ...
+//     END
+//
+// Status is one of: working | waiting | idle | done | error.
+// `ago_ms` is host-computed "ms since this session's last activity".
+// Lines between BEGIN and END accumulate into a staging list; END
+// commits the list via sessions::set().
+
 #include "transport.h"
 
 #include <Arduino.h>
-#include <ArduinoJson.h>
+#include <stdlib.h>
 #include <string.h>
 
 namespace {
 
-// Buffer one JSON line at a time. 6 KB fits ~24 max-sized rows comfortably;
-// the actual payload from the host caps at 6 sessions × ~80 bytes ≈ 500 B.
-constexpr size_t kLineMax = 6 * 1024;
+constexpr size_t kLineMax = 256;
 char     s_line[kLineMax];
 size_t   s_line_len = 0;
 
-// Storage for the parsed snapshot — sessions::set() copies into its own
-// table, but we still need the const char* fields it stores by reference
-// to remain valid. Keep our own string pool here.
 constexpr uint16_t kMaxRows = 16;
 constexpr size_t   kNameMax = 32;
 char     s_name_pool[kMaxRows][kNameMax];
-sessions::Session s_snapshot[kMaxRows];
+sessions::Session s_staging[kMaxRows];
+uint16_t s_staging_count = 0;
+bool     s_in_frame      = false;
 
 sessions::Status parse_status(const char *s) {
   if (!s) return sessions::Status::Idle;
@@ -29,39 +39,55 @@ sessions::Status parse_status(const char *s) {
   return sessions::Status::Idle;
 }
 
-void process_line(const char *line, size_t len) {
-  (void)len;
-  JsonDocument doc;
-  DeserializationError err = deserializeJson(doc, line);
-  if (err) {
-    Serial.printf("transport: JSON error: %s on input: %s\n", err.c_str(), line);
+void handle_session_line(char *line) {
+  // Expect: S<TAB>name<TAB>status<TAB>ago_ms (we already stripped the
+  // leading "S\t" before getting here).
+  char *tab1 = strchr(line, '\t');
+  if (!tab1) {
+    Serial.println("transport: bad row (no name tab)");
     return;
   }
+  *tab1 = '\0';
+  const char *name = line;
 
-  JsonArray arr = doc["s"].as<JsonArray>();
-  if (arr.isNull()) {
-    Serial.println("transport: missing 's' array");
+  char *tab2 = strchr(tab1 + 1, '\t');
+  if (!tab2) {
+    Serial.println("transport: bad row (no status tab)");
     return;
   }
+  *tab2 = '\0';
+  const char *status_s = tab1 + 1;
+
+  const char *ago_s = tab2 + 1;
+  const uint32_t ago = (uint32_t)atol(ago_s);
+
+  if (s_staging_count >= kMaxRows) return;
+  strncpy(s_name_pool[s_staging_count], name, kNameMax - 1);
+  s_name_pool[s_staging_count][kNameMax - 1] = '\0';
 
   const uint32_t now = millis();
-  uint16_t count = 0;
-  for (JsonObject item : arr) {
-    if (count >= kMaxRows) break;
-    const char *n  = item["n"]  | "?";
-    const char *st = item["st"] | "idle";
-    const uint32_t ago = item["ago"] | 0;
+  s_staging[s_staging_count].name             = s_name_pool[s_staging_count];
+  s_staging[s_staging_count].status           = parse_status(status_s);
+  s_staging[s_staging_count].last_activity_ms = (ago > now) ? 0 : now - ago;
+  ++s_staging_count;
+}
 
-    strncpy(s_name_pool[count], n, kNameMax - 1);
-    s_name_pool[count][kNameMax - 1] = '\0';
-    s_snapshot[count].name             = s_name_pool[count];
-    s_snapshot[count].status           = parse_status(st);
-    s_snapshot[count].last_activity_ms = (ago > now) ? 0 : now - ago;
-    ++count;
+void handle_line(char *line) {
+  if (strcmp(line, "BEGIN") == 0) {
+    s_in_frame = true;
+    s_staging_count = 0;
+    return;
   }
-
-  sessions::set(s_snapshot, count);
-  Serial.printf("transport: applied %u sessions\n", (unsigned)count);
+  if (strcmp(line, "END") == 0) {
+    if (!s_in_frame) return;
+    s_in_frame = false;
+    sessions::set(s_staging, s_staging_count);
+    Serial.printf("transport: applied %u sessions\n", (unsigned)s_staging_count);
+    return;
+  }
+  if (s_in_frame && line[0] == 'S' && line[1] == '\t') {
+    handle_session_line(line + 2);
+  }
 }
 
 }  // namespace
@@ -70,12 +96,12 @@ namespace transport {
 
 void tick() {
   while (Serial.available()) {
-    int c = Serial.read();
+    const int c = Serial.read();
     if (c < 0) break;
     if (c == '\n' || c == '\r') {
       if (s_line_len > 0) {
         s_line[s_line_len] = '\0';
-        process_line(s_line, s_line_len);
+        handle_line(s_line);
         s_line_len = 0;
       }
       continue;
@@ -83,8 +109,7 @@ void tick() {
     if (s_line_len + 1 < kLineMax) {
       s_line[s_line_len++] = (char)c;
     } else {
-      // Overflow — discard and resync at the next newline.
-      s_line_len = 0;
+      s_line_len = 0;  // overflow → resync at next newline
     }
   }
 }

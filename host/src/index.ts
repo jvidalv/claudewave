@@ -1,6 +1,12 @@
-// ClaudeWave host: scans ~/.claude/projects every second and pushes a
-// JSON snapshot to the firmware over USB-CDC serial. Survives device
-// resets by reopening the port automatically.
+// ClaudeWave host: scans ~/.claude/projects every POLL_INTERVAL_MS and
+// streams a snapshot to the firmware as a line-based frame:
+//
+//   BEGIN
+//   S\tname\tstatus\tago
+//   ...
+//   END
+//
+// Survives device resets by reopening the port automatically.
 
 import { SerialPort } from "serialport";
 import { scanSessions } from "./scanner.ts";
@@ -14,7 +20,6 @@ async function findPort(): Promise<string> {
   if (explicit) return explicit;
 
   const ports = await SerialPort.list();
-  // Espressif's USB JTAG/serial debug unit announces itself with this VID:PID.
   const match = ports.find(
     (p) => p.vendorId?.toLowerCase() === "303a" && p.productId?.toLowerCase() === "1001",
   );
@@ -40,11 +45,23 @@ function write(port: SerialPort, line: string): Promise<void> {
   });
 }
 
+function drain(port: SerialPort): Promise<void> {
+  return new Promise((resolve) => port.drain(() => resolve()));
+}
+
 async function pushOnce(port: SerialPort): Promise<void> {
   const sessions = await scanSessions();
-  const payload = { v: 1, s: sessions };
-  await write(port, JSON.stringify(payload) + "\n");
-  console.error(`[host] sent ${sessions.length} sessions`);
+  // Drop tabs/newlines from names so the line protocol stays unambiguous.
+  const lines: string[] = ["BEGIN"];
+  for (const s of sessions) {
+    const safeName = s.n.replace(/[\t\r\n]+/g, " ");
+    lines.push(`S\t${safeName}\t${s.st}\t${s.ago}`);
+  }
+  lines.push("END");
+  const frame = lines.join("\n") + "\n";
+  await write(port, frame);
+  await drain(port);
+  console.error(`[host] sent ${sessions.length} sessions (${frame.length}B)`);
 }
 
 async function runOnce(): Promise<void> {
@@ -80,7 +97,6 @@ async function runOnce(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     try {
       await runOnce();

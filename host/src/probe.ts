@@ -1,9 +1,13 @@
-// Dev helper: run the scanner once and print what would be sent to the
-// firmware. Not part of the main loop.
+// Dev helper: run the scanner once and print the line-protocol frame
+// that would be sent to the firmware.
 
 import { scanSessions } from "./scanner.ts";
 
-const snapshots = await scanSessions();
-const payload = { v: 1, s: snapshots };
-console.log(JSON.stringify(payload, null, 2));
-console.log(`\n${snapshots.length} session(s)`);
+const sessions = await scanSessions();
+const lines: string[] = ["BEGIN"];
+for (const s of sessions) {
+  lines.push(`S\t${s.n.replace(/[\t\r\n]+/g, " ")}\t${s.st}\t${s.ago}`);
+}
+lines.push("END");
+console.log(lines.join("\n"));
+console.error(`\n${sessions.length} session(s)`);
