@@ -40,12 +40,29 @@ pio device monitor
 The board appears as `/dev/cu.usbmodemXXXX` once connected over USB-C. If
 nothing shows up, the cable is almost certainly power-only — swap it.
 
+## Host (TypeScript)
+
+A small Node + TypeScript scanner under `host/` watches
+`~/.claude/projects/**/*.jsonl` and pushes a sessions snapshot to the
+firmware over USB-CDC every second.
+
+```sh
+cd host
+pnpm install
+pnpm dev   # talks to /dev/cu.usbmodem* automatically; override via CLAUDEWAVE_PORT
+```
+
+Sessions older than 1 h are filtered out client-side; the firmware
+collapses anything beyond 6 visible rows into "+N inactive".
+
 ## Roadmap
 
 1. ✅ Draw "1" on the panel
-2. ⬜ BLE GATT server exposing a "render" characteristic
-3. ⬜ TypeScript host that scrapes `claude agents` and pushes updates
-4. ⬜ Layout engine on-device (LVGL or hand-rolled)
+2. ✅ Animated splash (lifted from Clawdmeter)
+3. ✅ Sessions screen with status icons
+4. ✅ Real data over USB-CDC, fed by a TypeScript host
+5. ⬜ Replace USB with BLE GATT so the device runs off-cable
+6. ⬜ Touch interactions (tap a session to expand?)
 
 ## License
 

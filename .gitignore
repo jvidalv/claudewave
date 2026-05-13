@@ -4,3 +4,5 @@
 *.bin
 *.elf
 *.map
+node_modules/
+host/dist/

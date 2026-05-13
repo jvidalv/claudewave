@@ -17,7 +17,10 @@ constexpr int16_t     kTitleMargin = 12;
 constexpr uint16_t    kTitleColor  = 0xCBED;
 
 constexpr uint8_t     kRowScale    = 4;
-constexpr int16_t     kRowsAreaTop = 110;
+// Title baseline anchor. Title is drawn above this line; list starts
+// kTitleToListGap pixels below it. Keeps the two adjustable independently.
+constexpr int16_t     kRowsAreaTop     = 110;
+constexpr int16_t     kTitleToListGap  = 40;
 constexpr int16_t     kRowsAreaBot = 580;
 constexpr uint16_t    kRowsMax     = 6;
 // 14 cells × 24 px = 336 px name column; the icon claims the rest.
@@ -221,7 +224,8 @@ void repaint() {
     int16_t  x1 = 0, y1 = 0;
     uint16_t tw = 0, th = 0;
     s_gfx->getTextBounds(msg, 0, 0, &x1, &y1, &tw, &th);
-    s_gfx->setCursor((kPanelW - (int16_t)tw) / 2 - x1, kRowsAreaTop + 40);
+    s_gfx->setCursor((kPanelW - (int16_t)tw) / 2 - x1,
+                     kRowsAreaTop + kTitleToListGap);
     s_gfx->print(msg);
     s_dirty = false;
     return;
@@ -230,11 +234,12 @@ void repaint() {
   uint16_t order[kMaxSessions];
   sorted_indices(order);
 
-  const uint16_t shown = (s_count > kRowsMax) ? kRowsMax : s_count;
-  const int16_t  step  = (kRowsAreaBot - kRowsAreaTop) / (kRowsMax + 1);
+  const uint16_t shown    = (s_count > kRowsMax) ? kRowsMax : s_count;
+  const int16_t  list_top = kRowsAreaTop + kTitleToListGap;
+  const int16_t  step     = (kRowsAreaBot - list_top) / (kRowsMax + 1);
 
   for (uint16_t i = 0; i < shown; ++i) {
-    const int16_t text_y = kRowsAreaTop + 8 + (int16_t)i * step;
+    const int16_t text_y = list_top + (int16_t)i * step;
     const int16_t icon_y = text_y + (kRowHeight - kIconSize) / 2;
     const sessions::Session &s = s_items[order[i]];
     draw_icon(kIconLeft, icon_y, s.status, s_spinner_phase);
