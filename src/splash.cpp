@@ -84,14 +84,19 @@ namespace splash {
 
 bool begin(Arduino_GFX *display) {
   s_gfx = display;
-  s_canvas = (uint16_t *)heap_caps_malloc(kCanvas * kCanvas * sizeof(uint16_t),
-                                          MALLOC_CAP_SPIRAM);
   if (!s_canvas) {
-    Serial.println("splash: PSRAM alloc failed");
-    return false;
+    s_canvas = (uint16_t *)heap_caps_malloc(
+        kCanvas * kCanvas * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+    if (!s_canvas) {
+      Serial.println("splash: PSRAM alloc failed");
+      return false;
+    }
   }
   s_gfx->fillScreen(RGB565_BLACK);
-  show(0);
+  // Resume on the same animation we were on (keeps the cycle continuous
+  // across screen flips); if we're re-entering after a hide, that means
+  // jumping to the next animation feels less abrupt than restarting at 0.
+  show(s_cur_anim);
   const uint32_t now = millis();
   s_frame_started_ms = now;
   s_last_rotate_ms   = now;
