@@ -127,16 +127,6 @@ project's basename). `st` ∈ `working | waiting | idle | done | error`.
 `ago` = ms since this session's last activity, computed host-side so the
 device doesn't need a clock.
 
-## Roadmap
-
-1. ✅ Draw "1" on the panel
-2. ✅ Animated splash (lifted from Clawdmeter)
-3. ✅ Sessions screen with status icons
-4. ✅ Real data over USB-CDC, fed by a TypeScript host
-5. ⬜ Replace USB with BLE GATT so the device runs off-cable
-6. ⬜ Touch interactions (tap a session to expand?)
-7. ⬜ Per-session metadata: token count, model, last tool
-
 ## Credits
 
 - Splash animations and original render kernel from
